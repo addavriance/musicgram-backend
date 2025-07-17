@@ -443,50 +443,54 @@ class ChannelManager:
 
             return new_message_id
 
-        """
-        """
-
-
-
-
-
-
-
-    # TODO: удалить или переиначить логику создания стоковой картинки если fallback не предоставлена (1px пикчи не принимает тг)
     async def set_invisible_channel_photo(self, channel_username: str) -> bool:
         """
-        Установка невидимого/прозрачного фото канала
+        Установка "невидимого" фото канала — черный квадрат 180x180 px
+        Используется как fallback, если дефолтного файла нет.
         """
         try:
-            from PIL import Image
+            from PIL import Image, ImageDraw, ImageFont
             import io
 
-            # Создаем прозрачное изображение
-            img = Image.new('RGBA', (1, 1), (0, 0, 0, 0))
+            img = Image.new('RGB', (180, 180), (0, 0, 0))
+            draw = ImageDraw.Draw(img)
+
+            text = "no\nimage"
+            font_size = 40
+
+            font = ImageFont.load_default(size=font_size)
+
+            bbox = draw.textbbox((0, 0), text, font=font)
+            text_width = bbox[2] - bbox[0]
+            text_height = bbox[3] - bbox[1]
+
+            x = 10
+            y = (img.height - text_height) // 2
+
+            draw.text((x, y), text, font=font, fill=(255, 255, 255))
+
             img_bytes = io.BytesIO()
             img.save(img_bytes, format='PNG')
             img_bytes.seek(0)
 
-            # Отправляем как фото канала
             data = aiohttp.FormData()
             data.add_field('chat_id', f"@{channel_username}")
-            data.add_field('photo', img_bytes, filename='invisible.png', content_type='image/png')
+            data.add_field('photo', img_bytes, filename='black.png', content_type='image/png')
 
             url = f"{self.api_url}/setChatPhoto"
 
             async with aiohttp.ClientSession() as session:
                 async with session.post(url, data=data) as response:
-                    json = await response.json()
                     return response.status == 200
 
         except Exception as e:
-            logger.error(f"Не удалось установить невидимое фото для @{channel_username}: {e}")
-            # Fallback - используем дефолтное изображение
-            return await self.set_default_music_photo(channel_username)
+            logger.error(f"Не удалось установить черное фото для @{channel_username}: {e}")
+            return False
 
     async def set_default_music_photo(self, channel_username: str) -> bool:
         """
-        Установка дефолтного фото "нет музыки"
+        Установка дефолтного фото "нет музыки".
+        Если файл отсутствует — ставит черный квадрат (set_invisible_channel_photo).
         """
         try:
             import os
@@ -495,7 +499,7 @@ class ChannelManager:
             assets_path = Path(__file__).parent.parent.parent / "assets" / "no_music.png"
 
             if not assets_path.exists():
-                logger.warning(f"Файл {assets_path} не найден, создаем простое изображение")
+                logger.warning(f"Файл {assets_path} не найден, ставим черный квадрат")
                 return await self.set_invisible_channel_photo(channel_username)
 
             with open(assets_path, 'rb') as f:
@@ -512,5 +516,5 @@ class ChannelManager:
                     return response.status == 200
 
         except Exception as e:
-            logger.error(f"Ошибка установки дефолтного фото: {e}")
+            logger.error(f"Ошибка установки дефолтного фото для @{channel_username}: {e}")
             return False

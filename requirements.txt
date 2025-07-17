@@ -4,6 +4,7 @@ uvicorn[standard]==0.24.0
 
 # Telegram bot
 aiogram
+pillow
 
 greenlet
 
