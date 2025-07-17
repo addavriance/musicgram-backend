@@ -267,37 +267,15 @@ class ChannelManager:
 
                 async with session.post(url, json=data) as response:
                     json_data = await response.json()
-                    # Удаление может не работать для старых сообщений, это нормально
+
+                    if not json_data.get('ok'):
+                        return False
+
                     return True
 
         except Exception as e:
             logger.debug(f"Не удалось удалить сообщение {message_id} в канале @{channel_username}: {e}")
             return False
-
-    async def cleanup_channel_messages(self, channel_username: str, around_message_id: int, range_size: int = 5):
-        """
-        Очистка служебных сообщений вокруг основного сообщения
-
-        Args:
-            channel_username: Username канала
-            around_message_id: ID основного сообщения
-            range_size: Радиус очистки (количество сообщений в каждую сторону)
-        """
-        if not around_message_id:
-            return
-
-        # Удаляем сообщения в диапазоне, кроме основного
-        for offset in range(-range_size, range_size + 1):
-            if offset == 0:  # Не удаляем основное сообщение
-                continue
-
-            message_id = around_message_id + offset
-            if message_id > 0:
-                await self.delete_message(channel_username, message_id)
-
-        # Небольшая задержка после очистки
-        import asyncio
-        await asyncio.sleep(0.3)
 
     async def initialize_channel(self, channel_username: str, user_id: int):
         """
@@ -321,7 +299,8 @@ class ChannelManager:
             logger.error(f"Ошибка инициализации канала @{channel_username}: {e}")
             return None
 
-    async def update_channel_content(self, channel_username: str, user_data: Optional[Dict[str, Any]], track_data: Optional[Dict[str, Any]]):
+    async def update_channel_content(self, channel_username: str, user_data: Optional[Dict[str, Any]],
+                                     track_data: Optional[Dict[str, Any]]):
         """
         Главная функция обновления контента канала С УПРАВЛЕНИЕМ СООБЩЕНИЯМИ
         """
@@ -356,8 +335,8 @@ class ChannelManager:
 
                     msg_ids = service_tracker.stop_tracking(channel_username)
 
-                    for msg_id in msg_ids:  # TODO: вероятно будет удалено, поскольку будет фича с автоматическим удалением
-                        await self.delete_message(channel_username, msg_id)
+                    # for msg_id in msg_ids:  # TODO: вероятно будет удалено, поскольку будет фича с автоматическим удалением
+                    #     await self.delete_message(channel_username, msg_id)
 
                     # 3. Получаем или создаем сообщение с прогресс-баром
                     message_id = await self.get_or_create_progress_message(channel_username, channel_id)
@@ -393,15 +372,12 @@ class ChannelManager:
                     await asyncio.sleep(1.0)
 
                     msg_ids = service_tracker.stop_tracking(channel_username)
-
-                    for msg_id in msg_ids:
-                        await self.delete_message(channel_username, msg_id)
+                    #
+                    # for msg_id in msg_ids:
+                    #     await self.delete_message(channel_username, msg_id)
 
                     # 3. Получаем или создаем сообщение
                     message_id = await self.get_or_create_progress_message(channel_username, channel_id)
-
-                    # if message_id:
-                    #     await self.cleanup_service_messages_only(channel_username, message_id)
                 else:
                     # Музыка и так не играла - просто получаем ID
                     async for db in get_session():
@@ -448,7 +424,8 @@ class ChannelManager:
 
             if last_message_id:
                 # Пробуем отредактировать существующее сообщение
-                test_success = await self.edit_message(channel_username, last_message_id, self._create_progress_bar_text({}))
+                test_success = await self.edit_message(channel_username, last_message_id,
+                                                       self._create_progress_bar_text({}))
                 if test_success:
                     return last_message_id
 
@@ -466,43 +443,14 @@ class ChannelManager:
 
             return new_message_id
 
-    # TODO: методы с очисткой нужно будет удалить поскольку их работа неэффективна
-    async def cleanup_all_messages(self, channel_username: str, around_message_id: Optional[int]):
         """
-        Удаление всех сообщений в канале (при создании нового)
-
-        Args:
-            channel_username: Username канала
-            around_message_id: ID около которого удалять (если есть)
-        """
-        if around_message_id:
-            await self.get_updates(channel_username)
-            for offset in range(-20, 21):
-                message_id = around_message_id + offset
-                if message_id > 0:
-                    await self.delete_message(channel_username, message_id)
-
-        await asyncio.sleep(0.5)
-
-    async def cleanup_service_messages_only(self, channel_username: str, keep_message_id: int):
-        """
-        Удаление только служебных сообщений, сохраняя основное
-
-        Args:
-            channel_username: Username канала
-            keep_message_id: ID сообщения которое НЕ удалять
         """
 
-        await self.get_updates(channel_username)
-        for offset in range(-5, 6):
-            if offset == 0:  # Не удаляем основное сообщение
-                continue
 
-            message_id = keep_message_id + offset
-            if message_id > 0:
-                await self.delete_message(channel_username, message_id)
 
-        await asyncio.sleep(0.3)
+
+
+
 
     # TODO: удалить или переиначить логику создания стоковой картинки если fallback не предоставлена (1px пикчи не принимает тг)
     async def set_invisible_channel_photo(self, channel_username: str) -> bool:

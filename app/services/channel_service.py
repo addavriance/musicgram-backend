@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Dict, List, Set
 from datetime import datetime, timedelta
@@ -5,18 +6,19 @@ from aiogram import Router
 from aiogram.types import Message
 from aiogram.filters import BaseFilter
 
+from app.bot.utils.utils import delete_channel_msg
+
 logger = logging.getLogger(__name__)
 
 
 class ServiceMessageTracker:
     """Трекер служебных сообщений для каналов"""
 
-    def __init__(self):
+    def __init__(self, auto_delete: bool = False):
         self._tracked_channels: Set[str] = set()  # Каналы для отслеживания
         self._service_messages: Dict[str, List[int]] = {}  # channel_username -> [message_ids]
         self._last_action_time: Dict[str, datetime] = {}  # channel_username -> время последнего действия
-        # TODO: добавить фичу с моментальным удалением сообщения
-        #  при получении его через трекер, вместо ручного удаления
+        self._auto_delete = auto_delete
 
     def start_tracking(self, channel_username: str):
         """Начать отслеживание служебных сообщений для канала"""
@@ -35,15 +37,19 @@ class ServiceMessageTracker:
             f"Остановлено отслеживание для @{channel_username}, найдено {len(service_ids)} служебных сообщений")
         return service_ids
 
-    def add_service_message(self, channel_username: str, message_id: int):
+    async def add_service_message(self, channel_username: str, message_id: int):
         """Добавить ID служебного сообщения"""
         if channel_username in self._tracked_channels:
             # Проверяем что сообщение появилось недавно после действия
             if channel_username in self._last_action_time:
                 time_diff = datetime.now() - self._last_action_time[channel_username]
                 if time_diff < timedelta(seconds=10):  # В течение 10 секунд после действия
-                    self._service_messages[channel_username].append(message_id)
-                    logger.debug(f"Добавлено служебное сообщение {message_id} для @{channel_username}")
+                    if self._auto_delete:
+                        await delete_channel_msg(channel_username, message_id)
+                        logger.debug(f"Автоматически удалено служебное сообщение {message_id} для @{channel_username}")
+                    else:
+                        self._service_messages[channel_username].append(message_id)
+                        logger.debug(f"Добавлено служебное сообщение {message_id} для @{channel_username}")
 
     def is_tracking(self, channel_username: str) -> bool:
         """Проверить отслеживается ли канал"""
@@ -51,7 +57,7 @@ class ServiceMessageTracker:
 
 
 # Создаем глобальный трекер
-service_tracker = ServiceMessageTracker()
+service_tracker = ServiceMessageTracker(auto_delete=True)
 
 
 class ServiceMessageFilter(BaseFilter):
@@ -98,7 +104,7 @@ async def handle_service_message(message: Message):
 
         # Если канал отслеживается - добавляем сообщение
         if service_tracker.is_tracking(channel_username):
-            service_tracker.add_service_message(channel_username, message.message_id)
+            await service_tracker.add_service_message(channel_username, message.message_id)
             logger.debug(f"Получено служебное сообщение {message.message_id} в канале @{channel_username}")
 
     except Exception as e:
